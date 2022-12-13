@@ -10,6 +10,8 @@ public class SchemaDisplay {
 
     private String topic;
 
+    private Long schemaVersion = null;
+
     public SchemaDisplay() {
         super();
     }
@@ -42,5 +44,13 @@ public class SchemaDisplay {
                 .add("schemaInfo=" + schemaInfo)
                 .add("topic='" + topic + "'")
                 .toString();
+    }
+
+    public Long getSchemaVersion() {
+        return schemaVersion;
+    }
+
+    public void setSchemaVersion(Long schemaVersion) {
+        this.schemaVersion = schemaVersion;
     }
 }

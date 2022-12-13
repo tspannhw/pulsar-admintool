@@ -2,11 +2,14 @@ package com.pulsardeveloper;
 
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.admin.PulsarAdminException;
-import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.*;
 import org.apache.pulsar.common.schema.SchemaInfo;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.pulsar.core.PulsarTemplate;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.sql.Timestamp;
+import java.text.DateFormat;
+import java.util.*;
 
 /**
  * Hello world!
@@ -14,6 +17,7 @@ import java.util.List;
  */
 public class App 
 {
+
     public static void main( String[] args )
     {
         String url = "http://localhost:8080";
@@ -42,14 +46,11 @@ public class App
 
                             if ( schemaInfo != null && schemaInfo.getName() !=null  &&
                                  schemaInfo.getType() != null && schemaInfo.getSchemaDefinition() != null) {
-//                                System.out.println("Topic: " + topic
-//                            + "With Schema:" + schemaInfo.getName() +
-//                                    ":" + schemaInfo.getType() + ":" +
-//                                    schemaInfo.getSchemaDefinition());
 
                                 schemaDisplay = new SchemaDisplay();
                                 schemaDisplay.setSchemaInfo( schemaInfo);
                                 schemaDisplay.setTopic( topic );
+                                schemaDisplay.setSchemaVersion( admin.schemas().getVersionBySchema(topic, schemaInfo) );
                                 schemaList.add(schemaDisplay);
                             }
 
@@ -57,17 +58,50 @@ public class App
                             // System.out.println("No schema for topic");
                         }
                     }
-                    for (SchemaDisplay schema : schemaList) {
-                        if ( schema != null ) {
-                            System.out.println("Topic: " + schema.getTopic()
-                                    + "With Schema:" + schema.getSchemaInfo().getName() +
-                                    ":" + schema.getSchemaInfo().getType() );
 
-                            // + ":" +
-                            //                                    schema.getSchemaInfo().getSchemaDefinition()
+                    /**
+                     * consume alerts
+                     *
+                     * bin/pulsar-client consume "persistent://public/default/schema-alert" -s schema-alert-reader -n 0
+                     */
+                    if ( schemaList.size() > 0) {
+                        PulsarClient client = PulsarClient.builder()
+                                .serviceUrl(url)
+                                .build();
 
-                            // Can make rest call to send to a registry
-                            // Send to a database
+                        Producer<SchemaAlert> producer = client.newProducer(Schema.JSON(SchemaAlert.class))
+                                .topic("persistent://public/default/schema-alert")
+                                .create();
+
+                        // TODO:   cache current schema definition and version and check if change
+                        for (SchemaDisplay schema : schemaList) {
+                            if ( schema != null ) {
+                                UUID uuidKey = UUID.randomUUID();
+                                SchemaAlert schemaAlert = new SchemaAlert();
+                                schemaAlert.setTopic ( schema.getTopic());
+                                schemaAlert.setSchemaType ( schema.getSchemaInfo().getType().toString() );
+                                schemaAlert.setSchemaName ( schema.getSchemaInfo().getName() );
+                                schemaAlert.setSchemaDefinition(  schema.getSchemaInfo().getSchemaDefinition() );
+                                schemaAlert.setMessageId( admin.topics().getLastMessageId(schema.getTopic()).toString() );
+                                schemaAlert.setUUID(uuidKey.toString() );
+                                schemaAlert.setSchemaVersion( schema.getSchemaVersion() );
+
+                                Timestamp timestamp = new Timestamp(System.currentTimeMillis());
+                                schemaAlert.setTs( timestamp.getTime() );
+
+                                Locale loc = new Locale("en", "US");
+                                DateFormat dateFormat = DateFormat.getDateInstance(DateFormat.DEFAULT, loc);
+
+                                schemaAlert.setAlertDateTime( dateFormat.format(new Date()) );
+                                MessageId schemaAlertMessageID = producer.newMessage().
+                                        key(uuidKey.toString())
+                                        .value(schemaAlert)
+                                        .send();
+
+                                System.out.println("Sent Schema Alert " + schemaAlertMessageID.toString());
+                                // TODO: Can make rest call to send to a registry
+                                // TODO: Send to a database
+                            }
                         }
                     }
                 }
@@ -77,6 +111,5 @@ public class App
         } catch (Throwable e) {
             throw new RuntimeException(e);
         }
-
     }
 }
